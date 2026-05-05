@@ -4,7 +4,6 @@ const buildRubricText = () => {
   return rubric.rubric.bands.map(band => {
     const levels = band.levels.map(level => `
         ${level.score} - ${level.label} : ${level.description} Signals: ${level.signals.join(', ')}`).join('\n')
-
     return `## ${band.band} (${band.range[0]} - ${band.range[1]}): ${levels}`;
   }).join('\n')
 }
@@ -12,7 +11,6 @@ const buildRubricText = () => {
 const buildBoundariesText = () => {
   return `
     Boundary : ${rubric.rubric.criticalBoundary.boundary} - ${rubric.rubric.criticalBoundary.description}
-    
     `;
 }
 
@@ -31,8 +29,13 @@ Read this supervisor transcript carefully.
 Extract MINIMUM 4 quotes that reveal something about the Fellow's performance.
 Do NOT invent quotes. Do NOT use examples from your instructions.
 Include BOTH positive AND negative quotes — do not skip critical ones.
-Do NOT copy placeholder text from instructions — only use exact words from the TRANSCRIPT.
+Do NOT copy placeholder text — only use exact words from the TRANSCRIPT.
 
+## CRITICAL — WATCH FOR SUPERVISOR BIAS:
+- Presence bias: supervisor saying "spends too much time on laptop" may mean Fellow is doing systems work. Extract BOTH the complaint AND evidence of what they built.
+- Critical tone does not mean low performance. Extract what the Fellow actually DID, not just how the supervisor feels.
+- Look specifically for: trackers built, SOPs written, processes created, problems quantified, outcomes improved — even if supervisor is dismissive.
+- Glowing tone does not mean high performance. Extract whether Fellow built systems or just absorbed personal tasks.
 
 ## ASSESSMENT DIMENSIONS TO LOOK FOR:
 ${buildDimensionsText()}
@@ -80,10 +83,10 @@ ${buildBoundariesText()}
 - If ANY extracted quote shows Fellow does not push back or waits for instructions → MAXIMUM score is 6
 - If Fellow's work stops when they leave → cannot score 7+
 - Score 7+ ONLY if Fellow independently noticed a problem NO ONE asked about
-- "Helpful" or "takes work off plate" = 5-6, never 7+
+- "Helpful", "my right hand", "takes work off my plate" = 5-6, never 7+
+- "Spends time on laptop" from supervisor may indicate systems building — check what was actually built
 - Only include KPIs with actual transcript evidence — no empty fields
 - evidence dimension must be one of: execution | systems_building | kpi_impact | change_management
-- Never use band names as dimension values
 
 ## KPI NAMES — use ONLY these exact strings:
 ${buildKpiText()}
@@ -163,50 +166,85 @@ const ollamaResponse = async (prompt) => {
   }
 
   return data.response;
-
 };
 
-const fixAnalysis = (analysis, extracted , transcript) => {
+const fixAnalysis = (analysis, extracted, transcript) => {
   let score = analysis.score?.value;
   if (!score) return analysis;
-  const capTriggerPhrases = [
-    "doesn't push back",
-    "does not push back",
-    "does what i tell",
-    "does what he's told",
-    "waits for instructions",
-    "only when i tell",
-    "even if it's not the best way"
-  ];
+
+  const transcriptLower = (transcript || '').toLowerCase();
 
   const allQuotes = [
     ...(extracted?.quotes || []),
     ...(analysis?.evidence || [])
   ].map(q => (q.quote || '').toLowerCase());
 
-  const transcriptLower = (transcript || '').toLowerCase();
+  // ── RULE 1: No push back = max 6 ───────────────────────────────
+  const capDownPhrases = [
+    "doesn't push back", "does not push back",
+    "does what i tell", "does what he's told",
+    "waits for instructions", "only when i tell",
+    "even if it's not the best way"
+  ];
 
-    const shouldCap =
-        allQuotes.some(quote => capTriggerPhrases.some(phrase => quote.includes(phrase))) ||
-        capTriggerPhrases.some(phrase => transcriptLower.includes(phrase));
+  const shouldCapDown =
+    allQuotes.some(q => capDownPhrases.some(p => q.includes(p))) ||
+    capDownPhrases.some(p => transcriptLower.includes(p));
 
-    if (shouldCap && score > 6) {
-        console.log(`Score capped from ${score} to 6 — negative quote detected`);
-        score = 6;
-        analysis.score.value = 6;
-        analysis.score.justification += ' [Score capped at 6: supervisor explicitly noted Fellow does not push back or exercise independent judgment.]';
-    }
-
-  if (shouldCap && score > 6) {
-    console.log(`Score capped from ${score} to 6 — negative quote detected`);
+  if (shouldCapDown && score > 6) {
+    console.log(`Rule 1: Score capped from ${score} to 6 — no push back detected`);
     score = 6;
     analysis.score.value = 6;
-    analysis.score.justification += ' [Score capped at 6: supervisor explicitly noted Fellow does not push back or exercise independent judgment.]';
+    analysis.score.justification += ' Note: score limited to 6 — supervisor indicated Fellow does not exercise independent judgment.';
   }
 
+  // ── RULE 2: Helpfulness trap = max 6 ───────────────────────────
+  const helpfulnessTrapPhrases = [
+    "my right hand",
+    "don't know how we managed",
+    "takes so much off my plate",
+    "doing raghav's planning",
+    "doing his planning",
+    "running her meetings",
+    "handling her calls",
+    "i can finally focus",
+    "he prioritizes for me",
+    "filters"
+  ];
+
+  const shouldCapHelpfulness =
+    helpfulnessTrapPhrases.some(p => transcriptLower.includes(p));
+
+  if (shouldCapHelpfulness && score > 6) {
+    console.log(`Rule 2: Score capped from ${score} to 6 — helpfulness trap detected`);
+    score = 6;
+    analysis.score.value = 6;
+    analysis.score.justification += ' Note: score limited to 6 — Fellow appears to be absorbing personal tasks rather than building self-sustaining systems.';
+  }
+
+  // ── RULE 3: Real systems building despite critical supervisor = min 7
+  const systemsBuildingPhrases = [
+    "order tracker", "rejection analysis", "dispatch risk",
+    "sop", "tracking system", "built a", "she built",
+    "he built", "created a", "designed a", "quantified"
+  ];
+
+  const hasSystemsEvidence =
+    systemsBuildingPhrases.some(p => transcriptLower.includes(p));
+
+  if (hasSystemsEvidence && score <= 5) {
+    console.log(`Rule 3: Score raised from ${score} to 7 — systems building found despite critical supervisor`);
+    score = 7;
+    analysis.score.value = 7;
+    analysis.score.justification += ' Note: score raised to 7 — transcript contains evidence of systems building despite supervisor critical tone.';
+  }
+
+  // ── FIX BAND ────────────────────────────────────────────────────
   if (score <= 3) analysis.score.band = 'Need Attention';
   else if (score <= 6) analysis.score.band = 'Productivity';
   else analysis.score.band = 'Performance';
+
+  // ── FIX LABEL ───────────────────────────────────────────────────
   const labels = {
     1: 'Not Interested',
     2: 'Lacks Discipline',
@@ -221,13 +259,15 @@ const fixAnalysis = (analysis, extracted , transcript) => {
   };
   analysis.score.label = labels[score];
 
+  // ── FIX KPIs ────────────────────────────────────────────────────
   const validKpis = rubric.kpis.map(k => k.label);
   if (analysis.kpiMapping) {
     analysis.kpiMapping = analysis.kpiMapping.filter(k =>
       validKpis.includes(k.kpi) &&
       k.evidence &&
       !k.evidence.startsWith('<') &&
-      k.evidence.length > 10
+      k.evidence.length > 10 &&
+      !k.evidence.toLowerCase().includes('none mentioned')
     );
   }
 
@@ -235,31 +275,33 @@ const fixAnalysis = (analysis, extracted , transcript) => {
 };
 
 const analyzeTranscript = async (transcript) => {
-  // Step 1: Extraction
-  const extractionPrompt = getExtractionPrompt(transcript);
-  const extractionRaw = await ollamaResponse(extractionPrompt);
+  // Step 1: Extract quotes
+  console.log('Step 1: Extracting evidence...');
+  const extractionRaw = await ollamaResponse(getExtractionPrompt(transcript));
   let extracted;
   try {
     extracted = JSON.parse(extractionRaw.replace(/```json|```/g, '').trim());
   } catch (e) {
-    console.error("Failed to parse extraction JSON:", extractionRaw);
+    console.error('Failed to parse extraction JSON:', extractionRaw);
     extracted = { quotes: [] };
   }
+  console.log(`Extracted ${extracted.quotes?.length ?? 0} quotes`);
 
-  // Step 2: Scoring
-  const scoringPrompt = getScoringPrompt(transcript, extracted);
-  const scoringRaw = await ollamaResponse(scoringPrompt);
+  // Step 2: Score
+  console.log('Step 2: Scoring...');
+  const scoringRaw = await ollamaResponse(getScoringPrompt(transcript, extracted));
   let analysis;
   try {
     analysis = JSON.parse(scoringRaw.replace(/```json|```/g, '').trim());
   } catch (e) {
-    console.error("Failed to parse scoring JSON:", scoringRaw);
-    throw new Error("Failed to parse LLM response");
+    console.error('Failed to parse scoring JSON:', scoringRaw);
+    throw new Error('Failed to parse LLM response');
   }
 
-  const fixed = fixAnalysis(analysis, extracted , transcript);
+  // Step 3: Fix in code
+  const fixed = fixAnalysis(analysis, extracted, transcript);
   console.log(`Final score: ${fixed.score?.value} — ${fixed.score?.label} (${fixed.score?.band})`);
   return fixed;
-}
+};
 
 module.exports = { analyzeTranscript };

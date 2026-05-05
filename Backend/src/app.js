@@ -5,7 +5,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-app.post("/ollama-response", async (req, res) => {
+app.post("/api/analyze", async (req, res) => {
   try {
     const { transcript } = req.body;
     if (!transcript) {

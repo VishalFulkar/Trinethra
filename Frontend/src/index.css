@@ -1,1 +1,12 @@
 @import 'tailwindcss';
+
+body {
+  margin: 0;
+  font-family: "Oswald", sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}

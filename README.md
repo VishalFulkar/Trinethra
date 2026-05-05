@@ -1,6 +1,6 @@
 # TRINETHRA
 
-![Trinethra Banner](file:///C:/Users/visha/.gemini/antigravity/brain/d9fe7c54-e929-4961-b1f3-9be4327c096d/trinethra_banner_1777977142185.png)
+![Trinethra Banner](file:///C:/Users/visha/Web-Development/Project/Trinethra/Frontend/public/trinethra_banner_1777977142185.png)
 
 **Trinethra** is an AI-powered intelligence platform designed to analyze supervisor-fellow interactions and extract actionable performance insights. Using advanced LLM capabilities (Ollama), it processes raw interview transcripts to provide objective, rubric-based scoring that cuts through supervisor bias.
 
